@@ -50,15 +50,37 @@ class RNN_BasicBlock(nn.Module):
     # h_n of shape (num_layers * num_directions, batch, hidden_size)
     # c_n of shape (num_layers * num_directions, batch, hidden_size)
 
+    # print("output size: ",output.size())
+    # print("hn size: ",hn.size())
+    # print("cn size: ",cn.size())
+
+    # output size:  torch.Size([1, 28, 20])
+    # hn size:  torch.Size([2, 1, 20])
+    # cn size:  torch.Size([2, 1, 20])
+
+    # compare (1) output of the last timestep in output tensor (output.data[0][-1]) and 
+    # (2) the last hidden layer's output in hn tenosr (hn.data[1]).
+
+    # result: output and hn have the same values whereas cn has different values.
+
+    print("output-last timestep")
+    print(output.data[0][-1])
+    print("hn-last hidden output")
+    print(hn.data[1])
+    print("cn-last cell output")
+    print(cn.data[1])
+
     return output
 
-  # From the second block to the last block in the sequence
+  # From the second block to the last block in each sequence, the hidden and cell outputs from previous block have to be used as input for the next block
   ###########################################
   # def forward(self, x, hn, cn):
   #   h0 = hn
   #   c0 = cn
   #   output, (hn, cn) = self.lstm(x, (h0, c0))
   #   return output
+
+
 
 
 
@@ -191,20 +213,20 @@ if args.optstr==True:
     
 print(opts_obj)
 
-
-# set hyper-parameters
+# set hyper-parameters for RNN
 ###########################################
 sequence_length = 28 # total number of time steps for each sequence
 input_size = 28 # input size for each time step in a sequence
-hidden_size = 64
+hidden_size = 20
 num_layers = 2
-
+batch_size = 1
 
 # build the neural network
 ###########################################
 
 # define the neural network parameters
 basic_block = lambda: RNN_build_block_with_dim(input_size, hidden_size, num_layers)
+# basic_block_1 = lambda: RNN_build_block_with_dim_1(input_size, hidden_size, num_layers)
 
 # build parallel information
 dt        = Tf/num_steps
@@ -213,7 +235,15 @@ dt        = Tf/num_steps
 ###########################################
 # generate randomly initialized data
 ###########################################
-x = torch.randn(images,channels,sequence_length,input_size)
+num_batch = int(images / batch_size)
+x = torch.randn(num_batch,batch_size,channels,sequence_length,input_size)
+
+# For MNIST data later
+###########################################
+# for i, (images, labels) in enumerate(train_loader):
+#   images = images.reshape(-1, sequence_length, input_size)
+# train_loader.images: torch.Size([batch_size, channels, sequence_length, input_size])
+# train_loader.images.reshape(-1, sequence_length, input_size): torch.Size([batch_size, sequence_length, input_size])
 
 root_print(my_rank,'Number of steps: %d' % num_steps)
 
@@ -233,6 +263,7 @@ if run_serial:
   block = basic_block()
 
   serial_nn = block
+  serial_nn_chunks = block
 
   # How to connect the separated sub-sequences/blocks?
   # Compare the results between final_output1 and final_output2
@@ -240,14 +271,49 @@ if run_serial:
   # final_output1 = serial_nn(X_sub1,result)
   # final_output2 = serial_nn(X_sub0,X_sub1)
 
-
   with torch.no_grad():
     t0_parallel = time.time()
 
-    for i in range(len(x)):
-      images = x[i].reshape(-1, sequence_length, input_size) # (batch_size, seq_len, features)
-      y_serial = serial_nn(images)
-    
+    # for i in range(len(x)):
+    for i in range(1):
+      print("image id: ",i)
+      image = x[i].reshape(-1, sequence_length, input_size) # (batch_size, sequence_length, input_size)
+
+      print("image size: ",image.shape)
+      print(image.data[0])
+
+      # forward pass
+      y_serial = serial_nn(image)
+
+      print("y_serial size: ", y_serial.shape)
+      print(y_serial.data[0])
+
+
+###########################################
+      # assume that we have two steps (blocks)
+      # spilt an image into two chunks of images
+      chunk_dim = 2
+      images_split = torch.chunk(image, chunk_dim, dim=1)
+
+      chunks = []
+      for cnk in images_split:
+        chunks.append(cnk)
+
+      print("number of chunks: ",len(chunks))
+      print("chunk-1 image size: ",chunks[0].shape)
+      print(chunks[0].data[0])
+      print("chunk-2 image size: ",chunks[1].shape)
+      print(chunks[1].data[0])
+
+      # forward pass
+      for j in range(2):
+        y_serial_chunks = serial_nn_chunks(chunks[j])
+
+      print("y_serial_chunks size: ", y_serial_chunks.shape)
+      print(y_serial_chunks.data[0])
+
+###########################################
+
     tf_parallel = time.time()
 
 """
@@ -266,6 +332,22 @@ on root
 else
   MPI_Recv (data)
 """
+
+
+# TODO: Passing h0 and c0 - suggestion (use mpi - horovod)
+###########################################
+# Global barrier
+###########################################
+# hvd.allreduce(torch.tensor(0), name='barrier')
+
+# (current horovod) DO NOT HAVE 
+###########################################
+# send rank0 -> rank1
+# hc = np.zeros([hvd.size(), 2, hc_length]);
+# hc[hvd.rank(), :, :] = [my_h_last, my_c_last]
+# hvd.allreduce(hc, name="hc")
+# hc_initial = hc[hvd.rank()-1, :, :]
+
 
 # max_levels = 1 means serial version
 
