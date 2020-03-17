@@ -226,7 +226,6 @@ batch_size = 1
 
 # define the neural network parameters
 basic_block = lambda: RNN_build_block_with_dim(input_size, hidden_size, num_layers)
-# basic_block_1 = lambda: RNN_build_block_with_dim_1(input_size, hidden_size, num_layers)
 
 # build parallel information
 dt        = Tf/num_steps
