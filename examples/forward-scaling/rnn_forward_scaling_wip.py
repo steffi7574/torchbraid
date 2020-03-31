@@ -51,7 +51,6 @@ class ODEBlock(nn.Module):
   def forward(self, x):
     return x + self.dt*self.layer(x)
 
-
 def RNN_build_block_with_dim(input_size, hidden_size, num_layers):
   b = RNN_BasicBlock(input_size, hidden_size, num_layers) # channels = hidden_size
   return b
@@ -216,9 +215,9 @@ if run_serial:
 
   # For RNN, [for loop] is no longer needed anymore
   ###########################################
-  block = basic_block()
-
-  serial_rnn = block
+  # block = basic_block()
+  # serial_rnn = block
+  serial_rnn = basic_block()
 
   with torch.no_grad():
     t0_parallel = time.time()
@@ -231,12 +230,15 @@ if run_serial:
       print("image size: ",image.shape)
       # print(image.data[0])
 
+# Serial version 1
+###########################################
       # forward pass
       y_serial_hn = torch.zeros(num_layers, image.size(0), hidden_size)
       y_serial_cn = torch.zeros(num_layers, image.size(0), hidden_size)
 
       y_serial_output, (y_serial_hn, y_serial_cn) = serial_rnn(image,y_serial_hn,y_serial_cn)
 
+# Serial version 2
 ###########################################
       # assume that there are two steps (blocks)
       # spilt each squence of image into two sub-sequences/chunks of image
@@ -284,30 +286,81 @@ if run_serial:
       print("Serial version 2 - y_serial_prev_cn size: ", y_serial_prev_cn.shape)
       print(y_serial_prev_cn.data[1])
 
-###########################################
     tf_parallel = time.time()
 
-
+# root_print(my_rank,'Number of steps: %d' % num_steps)
+# root_print(my_rank,'Number of local steps: %d' % local_num_steps)
 """
-# TODO: distribute Neural Network
+# Parallel version
 ###########################################
-on root
-  bb = build basic block
-  MPI_Send (bb, to all procs)
-else
-  bb = MPI_Recv (bb, root)
+else:
+  # build the parallel neural network
+  # Does torchbraid.Model distribute the basic_blocks to multiple processors?
+  # Where is the num_steps used in a serial version? 
+  # Maybe local_num_steps? Maybe yes.
+  # root_print(my_rank,'Number of steps: %d' % num_steps) 
+  # root_print(my_rank,'Number of local steps: %d' % local_num_steps)
+  # Number of steps: 2
+  # Number of local steps: 2
 
-# TODO: distribute data
-###########################################
-on root
-  MPI_Send (data, to all procs)
-else
-  MPI_Recv (data)
+  # Then how to distribute seq_split (x_split) to different processors?
+
+  # # TODO: distribute Neural Network
+  # ###########################################
+  # on root
+  #   bb = build basic block
+  #   MPI_Send (bb, to all procs)
+  # else
+  #   bb = MPI_Recv (bb, root)
+
+  # # TODO: distribute data
+  # ###########################################
+  # on root
+  #   MPI_Send (data, to all procs)
+  # else
+  #   MPI_Recv (data)
+
+
+  root_print(my_rank,'Running TorchBraid: %d' % comm.Get_size())
+
+  max_levels = 1 # for testing parallel rnn
+  max_iters = 1 # for testing parallel rnn
+
+  # modify the torchbraid.Model for RNN
+  # If there is 10 processors, and 20 time steps, each processor takes 2 time steps
+  parallel_nn = torchbraid.Model(comm,basic_block,local_num_steps,Tf,max_levels=max_levels,max_iters=max_iters)
+
+
+  parallel_nn.setPrintLevel(print_level)
+  parallel_nn.setCFactor(cfactor)
+  parallel_nn.setNumRelax(nrelax)
+
+  t0_parallel = time.time()
+
+  y_parallel = parallel_nn(x)
+  comm.barrier()
+
+  tf_parallel = time.time()
+  comm.barrier()
+
+  # check serial case
+  serial_nn = parallel_nn.buildSequentialOnRoot()
+  y_parallel = parallel_nn.getFinalOnRoot()
+  if my_rank == 0:
+    with torch.no_grad():
+      y_serial = serial_nn(x)
+    
+    print('error = ',torch.norm(y_serial-y_parallel)/torch.norm(y_serial))
+# end if not run_serial
 """
 
+root_print(my_rank,'Run    Time: %.6e' % (tf_parallel-t0_parallel))
 
+
+
+#################################################################################################################################
 # TODO: Passing h0 and c0 - suggestion (use mpi - horovod)
-###########################################
+#################################################################################################################################
 # Global barrier
 ###########################################
 # hvd.allreduce(torch.tensor(0), name='barrier')
@@ -319,34 +372,3 @@ else
 # hc[hvd.rank(), :, :] = [my_h_last, my_c_last]
 # hvd.allreduce(hc, name="hc")
 # hc_initial = hc[hvd.rank()-1, :, :]
-
-
-# max_levels = 1 means serial version
-
-"""
-else:
-  root_print(my_rank,'Running TorchBraid: %d' % comm.Get_size())
-  # build the parallel neural network
-  parallel_nn = torchbraid.Model(comm,basic_block,local_num_steps,Tf,max_levels=max_levels,max_iters=max_iters)
-  parallel_nn.setPrintLevel(print_level)
-  parallel_nn.setCFactor(cfactor)
-  parallel_nn.setNumRelax(nrelax)
-
-  t0_parallel = time.time()
-  y_parallel = parallel_nn(x)
-  comm.barrier()
-  tf_parallel = time.time()
-  comm.barrier()
-
-  # check serial case
-  serial_nn = parallel_nn.buildSequentialOnRoot()
-  y_parallel = parallel_nn.getFinalOnRoot()
-  if my_rank==0:
-    with torch.no_grad():
-      y_serial = serial_nn(x)
-    
-    print('error = ',torch.norm(y_serial-y_parallel)/torch.norm(y_serial))
-# end if not run_serial
-"""
-
-root_print(my_rank,'Run    Time: %.6e' % (tf_parallel-t0_parallel))
