@@ -387,7 +387,7 @@ else:
   t0_parallel = time.time()
   # parallel_nn(x_block)
   # y_parallel_output, (y_parallel_hn, y_parallel_cn) = parallel_nn(x_block)
-  # y_parallel_output = parallel_nn(x_block)
+  y_parallel_output = parallel_nn(x_block)
   comm.barrier()
 
   tf_parallel = time.time()
