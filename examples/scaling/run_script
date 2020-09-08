@@ -1,0 +1,40 @@
+==============================================================================
+
+mpirun -n 1 python forward_scaling.py --serial 2 // serial
+mpirun -n 1 python forward_scaling.py 2 // parallel (one node)
+mpirun -n 2 python forward_scaling.py 2 // parallel (two nodes)
+
+==============================================================================
+
+mpirun -n 1 python rnn_forward_scaling.py --serial 2 // serial (one node)
+
+==============================================================================
+
+mpirun -n 1 python test.py --serial 2
+mpirun -n 2 python test.py --serial 2
+
+mpirun -n 1 python test.py 2
+
+==============================================================================
+
+Run the below scripts
+
+export TORCHBRAID_DIR=/Users/gemoon/Desktop/Layer-parallel/torchbraid-github/
+export PYTHONPATH=${TORCHBRAID_DIR}/torchbraid:${TORCHBRAID_DIR}:${PYTHONPATH}
+
+mpirun -n 1 python forward_scaling_RNN.py --serial 2 // serial (one node)
+------------------------------------------------------------------------------
+
+==============================================================================
+
+mpirun -n 1 python forward_scaling_RNN.py 2 // parallel (one node)
+mpirun -n 2 python forward_scaling_RNN.py 2 // parallel (two nodes)
+mpirun -n 4 python forward_scaling_RNN.py 4 // parallel (four nodes)
+------------------------------------------------------------------------------
+
+==============================================================================
+
+mpirun -n 1 python test.py --serial 2
+mpirun -n 2 python test.py --serial 2
+
+mpirun -n 1 python test.py 2
