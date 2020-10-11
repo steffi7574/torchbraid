@@ -57,16 +57,26 @@ class BraidFunction(torch.autograd.Function):
       else:
         result = fwd_app.run(None)
 
-      if my_rank!=num_ranks-1:
-        result = torch.zeros(shape)
+      #if my_rank!=num_ranks-1:
+      #  result = torch.zeros(shape)
 
     # broadcast the output of the last layer 
-    comm.Bcast(result.numpy(),root=num_ranks-1)
+    #comm.Bcast(result.numpy(),root=num_ranks-1)
+    if num_ranks>1:
+      if my_rank==0:
+        result = torch.zeros(shape)
+        comm.Recv(result.numpy(),source=num_ranks-1)
+      elif my_rank==num_ranks-1: 
+        comm.Send(result.numpy(),dest=0)
+        result = torch.zeros(0)
+      else:
+        result = torch.zeros(0)
 
     return result
 
   @staticmethod
   def backward(ctx, grad_output):
+
     comm          = ctx.bwd_app.getMPIComm()
     my_rank       = ctx.bwd_app.getMPIComm().Get_rank()
     num_ranks     = ctx.bwd_app.getMPIComm().Get_size()
@@ -75,13 +85,18 @@ class BraidFunction(torch.autograd.Function):
     if num_ranks>1:
       if my_rank==0:
         comm.Send(grad_output.numpy(),dest=num_ranks-1)
+        grad_output = None
       elif my_rank==num_ranks-1: 
+        grad_output = torch.zeros(ctx.bwd_app.shape0[0])
         comm.Recv(grad_output.numpy(),source=0)
+      else: 
+        grad_output = None
 
-    if my_rank==num_ranks-1:
+    if my_rank==0:
       result = ctx.bwd_app.run(grad_output)
     else:
-      result = ctx.bwd_app.run(None)
+      ctx.bwd_app.run(grad_output)
+      result = torch.zeros(0)
 
     # send gradients to the right (braid doesn't maintain symmetry with the forward and
     # adjoint problems)

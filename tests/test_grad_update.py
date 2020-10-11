@@ -146,7 +146,11 @@ class TestGradUpdate(unittest.TestCase):
 
     # propogation with torchbraid
     #######################################
-    xm = x0.clone()
+    if m.getMPIComm().Get_rank()==0:
+      xm = x0.clone()
+    else:
+      xm = torch.zeros(0)
+      w0 = torch.zeros(0)
     xm.requires_grad = True
 
     wm = m(xm)
@@ -161,7 +165,7 @@ class TestGradUpdate(unittest.TestCase):
     wm.backward(w0)
 
     m_param_grad = self.copyParameterGradToRoot(m)
-    wm = m.getFinalOnRoot(wm)
+    #wm = m.getFinalOnRoot(wm)
 
     # print time results
     timer_str = m.getTimersString() 

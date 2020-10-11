@@ -237,16 +237,21 @@ class TestTorchBraid(unittest.TestCase):
 
     # propogation with torchbraid
     #######################################
-    xm = x0.clone()
+    if m.getMPIComm().Get_rank()!=0:
+      xm = torch.zeros(0)
+    else:
+      xm = x0.clone()
     xm.requires_grad = check_grad
 
     wm = m(xm)
 
     if check_grad:
+      if m.getMPIComm().Get_rank()!=0:
+        w0 = torch.zeros(0)
       wm.backward(w0)
       m_param_grad = self.copyParameterGradToRoot(m)
 
-    wm = m.getFinalOnRoot(wm)
+    #wm = m.getFinalOnRoot(wm)
 
     # print time results
     timer_str = m.getTimersString() 
