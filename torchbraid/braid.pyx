@@ -259,6 +259,12 @@ cdef extern from "_braid.h":
                              int         index,
                              braid_BaseVector *u_ptr);
 
+    ##
+    # helper function for accessing braid vector at LAST time step
+    int _braid_UGetLast(braid_Core        core,
+                        braid_BaseVector *u_ptr);
+
+
 # cdef object convert_carray_to_numpy(double * v, dim1, dim2=1, dim3=1):
 #     '''
 #     Helper function to cast C array v to an (dim1 x dim2 x dim3) 

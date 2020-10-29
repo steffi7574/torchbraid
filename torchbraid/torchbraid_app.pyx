@@ -251,7 +251,13 @@ class BraidApp:
     braid_Drive(core) # my_step -> App:eval -> resnet "basic block"
 
     self.printBraidStats()
-    
+
+    # Get vector at final time step from braid
+    cdef braid_BaseVector bv
+    _braid_UGetLast(core, &bv)
+    ulast = <object> bv.userVector
+    # print("ulast: ", ulast.tensor_)
+    self.x_final = ulast.clone()
 
     return self.getFinal()
 
@@ -371,8 +377,11 @@ class BraidApp:
     return x
 
   def access(self,t,u):
-    if t==self.Tf:
-      self.x_final = u.clone()
+    # if t==self.Tf:
+      # print("Access(", t,"): returning x_final.\n")
+      # self.x_final = u.clone()
+    ## Instead of the above, x_final is set at the end of runBraid
+    pass
 
   def getFinal(self):
     if self.x_final==None:
