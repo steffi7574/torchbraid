@@ -255,9 +255,10 @@ class BraidApp:
     # Get vector at final time step from braid
     cdef braid_BaseVector bv
     _braid_UGetLast(core, &bv)
-    ulast = <object> bv.userVector
-    # print("ulast: ", ulast.tensor_)
-    self.x_final = ulast.clone()
+    if not (bv is NULL):
+      ulast = <object> bv.userVector
+      # print("ulast: ", ulast.tensor_)
+      self.x_final = ulast.clone()
 
     return self.getFinal()
 

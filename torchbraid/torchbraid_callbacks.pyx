@@ -77,13 +77,9 @@ cdef int my_step(braid_App app, braid_Vector ustop, braid_Vector fstop, braid_Ve
     braid_StepStatusGetDone(status, &done)
 
 
-    # Compute gradient only on the very LAST call to my_step on finest grid, i.e. only if
-    #  * last iteration (iter == max_iter - 1)
-    #  * level == 0
-    #  * Braid calling function is FRestrict
-    # OR: Braid is running on one level only
+    # Compute gradients only after Braid has finished iterating (during last call to FCRelax)
     compute_grads = False
-    if done == 1:  # Compute gradients only after Braid has finished iterating (during last call to FCRelax)
+    if done == 1:
       compute_grads = True
 
     u =  <object> vec_u
