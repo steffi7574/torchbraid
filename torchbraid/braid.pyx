@@ -72,6 +72,7 @@ cdef extern from "braid_status.h":
     int braid_StepStatusGetTIndex (braid_StepStatus status, int *idx_ptr)
     int braid_StepStatusGetIter (braid_StepStatus status, int *iter_ptr)
     int braid_StepStatusGetLevel (braid_StepStatus status, int *level_ptr)
+    int braid_StepStatusGetDone (braid_StepStatus status, int *done_ptr)
     int braid_StepStatusGetNLevels (braid_StepStatus status, int *nlevels_ptr)
     int braid_StepStatusGetNRefine (braid_StepStatus status, int *nrefine_ptr)
     int braid_StepStatusGetNTPoints (braid_StepStatus status, int *ntpoints_ptr)
