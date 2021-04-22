@@ -59,7 +59,9 @@ class ODEBlock(nn.Module):
     self.layer = layer
 
   def forward(self, x):
-    return x + self.dt*self.layer(x)
+    y = self.dt*self.layer(x)
+    y.add_(x)
+    return y
 # end ODEBlock
 
 class LayerParallel(nn.Module):
@@ -103,7 +105,7 @@ class LayerParallel(nn.Module):
        # so this is all a hack to get this thing to work
       return torch.zeros(1)*value
 
-  def __init__(self,comm,layer_block,num_steps,Tf,max_levels=1,max_iters=10,spatial_ref_pair=None):
+  def __init__(self,comm,layer_block,num_steps,Tf,max_levels=1,max_iters=10,spatial_ref_pair=None,internal_storage=False):
     super(LayerParallel,self).__init__()
 
     self.comm = comm
@@ -125,7 +127,8 @@ class LayerParallel(nn.Module):
 
     self.timer_manager = ContextTimerManager()
 
-    self.fwd_app = apps.ForwardODENetApp(comm,self.layer_models,num_steps,Tf,max_levels,max_iters,self.timer_manager,spatial_ref_pair=spatial_ref_pair)
+    self.fwd_app = apps.ForwardODENetApp(comm,self.layer_models,num_steps,Tf,max_levels,max_iters,self.timer_manager,
+                                         spatial_ref_pair=spatial_ref_pair,internal_storage=internal_storage)
     self.bwd_app = apps.BackwardODENetApp(self.fwd_app,self.timer_manager)
 
     self.enable_diagnostics = False
@@ -184,8 +187,8 @@ class LayerParallel(nn.Module):
     self.fwd_app.setSkipDowncycle(skip)
     self.bwd_app.setSkipDowncycle(skip)
 
-  def getMPIData(self):
-    return self.fwd_app.getMPIData()
+  def getMPIComm(self):
+    return self.fwd_app.getMPIComm()
 
   def forward(self,x):
     # we are doing this to take adavtage of
@@ -265,16 +268,16 @@ class LayerParallel(nn.Module):
     ode_layers    = [ODEBlock(copy.deepcopy(l),self.dt) for l in self.layer_models]
     remote_layers = ode_layers
     build_seq_tag = 12         # this 
-    comm          = self.getMPIData().getComm()
-    my_rank       = self.getMPIData().getRank()
-    num_ranks     = self.getMPIData().getSize()
+    comm          = self.getMPIComm()
+    my_rank       = self.getMPIComm().Get_rank()
+    num_ranks     = self.getMPIComm().Get_size()
 
     # short circuit for serial case
     if num_ranks==1:
       return nn.Sequential(*remote_layers)
 
     if my_rank==0:
-      for i in range(1,self.getMPIData().getSize()):
+      for i in range(1,self.getMPIComm().Get_size()):
         remote_layers += comm.recv(source=i,tag=build_seq_tag)
       return nn.Sequential(*remote_layers)
     else:
@@ -285,31 +288,32 @@ class LayerParallel(nn.Module):
   def getFinal(self):
     return  self.fwd_app.getFinal()
 
-  def getFinalOnRoot(self):
+  def getFinalOnRoot(self,vec):
     build_seq_tag = 99        # this 
-    comm          = self.getMPIData().getComm()
-    my_rank       = self.getMPIData().getRank()
-    num_ranks     = self.getMPIData().getSize()
+    comm          = self.getMPIComm()
+    my_rank       = self.getMPIComm().Get_rank()
+    num_ranks     = self.getMPIComm().Get_size()
 
     # short circuit for serial case
     if num_ranks==1:
-      return self.getFinal()
+      #return self.getFinal()
+      return vec
 
     # send the output of the last layer to the root
     if my_rank==0:
       remote_final = comm.recv(source=num_ranks-1,tag=build_seq_tag)
       return remote_final
     elif my_rank==num_ranks-1:
-      final = self.getFinal()
+      final = vec
       comm.send(final,dest=0,tag=build_seq_tag)
 
     return None
 
   def copyVectorFromRoot(self,vec):
     build_seq_tag = 99        # this 
-    comm          = self.getMPIData().getComm()
-    my_rank       = self.getMPIData().getRank()
-    num_ranks     = self.getMPIData().getSize()
+    comm          = self.getMPIComm()
+    my_rank       = self.getMPIComm().Get_rank()
+    num_ranks     = self.getMPIComm().Get_size()
 
     # short circuit for serial case
     if num_ranks==1:

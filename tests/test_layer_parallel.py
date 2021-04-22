@@ -123,7 +123,8 @@ class TestTorchBraid(unittest.TestCase):
     # this catch block, augments the 
     rank = MPI.COMM_WORLD.Get_rank()
     try:
-      self.backForwardProp(dim,basic_block,x0,w0,max_levels,max_iters,test_tol=1e-16,prefix='reLUNet_Exact')
+      self.backForwardProp(dim,basic_block,x0,w0,max_levels,max_iters,test_tol=1e-16,prefix='reLUNet_Exact-internal_storage=False',internal_storage=False)
+      self.backForwardProp(dim,basic_block,x0,w0,max_levels,max_iters,test_tol=1e-16,prefix='reLUNet_Exact-internal_storage=True',internal_storage=True)
     except RuntimeError as err:
       raise RuntimeError("proc=%d) reLUNet_Exact..failure" % rank) from err
 
@@ -187,7 +188,8 @@ class TestTorchBraid(unittest.TestCase):
     # this catch block, augments the 
     rank = MPI.COMM_WORLD.Get_rank()
     try:
-      self.backForwardProp(dim,basic_block,x0,w0,max_levels,max_iters,test_tol=1e-6,prefix='reLUNet_Approx')
+      self.backForwardProp(dim,basic_block,x0,w0,max_levels,max_iters,test_tol=1e-6,prefix='reLUNet_Approx-internal_storage=False',internal_storage=False)
+      self.backForwardProp(dim,basic_block,x0,w0,max_levels,max_iters,test_tol=1e-6,prefix='reLUNet_Approx-internal_storage=True',internal_storage=True)
     except RuntimeError as err:
       raise RuntimeError("proc=%d) reLUNet_Approx..failure" % rank) from err
 
@@ -195,9 +197,9 @@ class TestTorchBraid(unittest.TestCase):
   # end test_reLUNet_Approx
 
   def copyParameterGradToRoot(self,m):
-    comm     = m.getMPIData().getComm()
-    my_rank  = m.getMPIData().getRank()
-    num_proc = m.getMPIData().getSize()
+    comm     = m.getMPIComm()
+    my_rank  = m.getMPIComm().Get_rank()
+    num_proc = m.getMPIComm().Get_size()
  
     params = [p.grad for p in list(m.parameters())]
 
@@ -215,12 +217,12 @@ class TestTorchBraid(unittest.TestCase):
       return None
   # end copyParametersToRoot
 
-  def backForwardProp(self,dim, basic_block,x0,w0,max_levels,max_iters,test_tol,prefix,ref_pair=None,check_grad=True,num_steps=4,print_level=0):
+  def backForwardProp(self,dim, basic_block,x0,w0,max_levels,max_iters,test_tol,prefix,ref_pair=None,check_grad=True,num_steps=4,print_level=0,internal_storage=False):
     Tf = 2.0
 
     # this is the torchbraid class being tested 
     #######################################
-    m = torchbraid.LayerParallel(MPI.COMM_WORLD,basic_block,num_steps,Tf,max_levels=max_levels,max_iters=max_iters,spatial_ref_pair=ref_pair)
+    m = torchbraid.LayerParallel(MPI.COMM_WORLD,basic_block,num_steps,Tf,max_levels=max_levels,max_iters=max_iters,spatial_ref_pair=ref_pair,internal_storage=internal_storage)
     m.setPrintLevel(print_level)
     m.setSkipDowncycle(False)
 
@@ -244,13 +246,13 @@ class TestTorchBraid(unittest.TestCase):
       wm.backward(w0)
       m_param_grad = self.copyParameterGradToRoot(m)
 
-    wm = m.getFinalOnRoot()
+    wm = m.getFinalOnRoot(wm)
 
     # print time results
     timer_str = m.getTimersString() 
 
     # check some values
-    if m.getMPIData().getRank()==0:
+    if m.getMPIComm().Get_rank()==0:
 
       # this is too much to print out every test run, but I'd like to make sure the
       # code is execueted

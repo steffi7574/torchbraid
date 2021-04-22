@@ -34,7 +34,6 @@
 
 import torch
 import numpy as np
-import traceback
 
 from braid_vector import BraidVector
 
@@ -58,12 +57,7 @@ include "./torchbraid_callbacks.pyx"
 
 class BraidApp:
 
-  def __init__(self,prefix_str,comm,local_num_steps,Tf,max_levels,max_iters,
-               spatial_ref_pair=None,require_storage=False):
-
-    self.prefix_str = prefix_str # prefix string for helping to debug hopefully
-    self.tb_print_level = 0      # set print level internally to zero
-
+  def __init__(self,comm,local_num_steps,hidden_size,num_layers,Tf,max_levels,max_iters):
     # optional parameters
     self.max_levels  = max_levels
     self.max_iters   = max_iters
@@ -71,48 +65,32 @@ class BraidApp:
     self.nrelax      = 0
     self.cfactor     = 2
     self.skip_downcycle = 0
-    self.require_storage = require_storage
 
+    local_num_steps = 1 # To make sure, set local_num_steps = 1
     self.mpi_comm        = comm
     self.Tf              = Tf
     self.local_num_steps = local_num_steps
+    # self.num_steps       = local_num_steps
     self.num_steps       = local_num_steps*self.mpi_comm.Get_size()
 
     self.dt       = Tf/self.num_steps
     self.t0_local = self.mpi_comm.Get_rank()*local_num_steps*self.dt
     self.tf_local = (self.mpi_comm.Get_rank()+1.0)*local_num_steps*self.dt
 
+    self.hidden_size = hidden_size
+    self.num_layers = num_layers
+
     self.x_final = None
     self.shape0 = None
   
     comm          = self.getMPIComm()
-    my_rank       = self.getMPIComm().Get_rank()
+    rnn_my_rank       = self.getMPIComm().Get_rank()
     num_ranks     = self.getMPIComm().Get_size()
 
     self.py_core = None
 
-    self.spatial_mg = False
-    self.spatial_ref_pair = spatial_ref_pair
-    if spatial_ref_pair!=None:
-      c,r = spatial_ref_pair
-      self.spatial_coarse = c
-      self.spatial_refine = r
-      self.spatial_mg = True
-    # turn on spatial multigrid
-
     # build up the core
     self.py_core = self.initCore()
-
-    # this tracks if you are training or not,
-    # this is intended to match the behavior of
-    # the PyTorch Module class, note though torchbraid
-    # uses evalNetwork and trainNetwork
-    self.training = True
-
-    self.enable_diagnostics = False
-
-    self.first = True
-    self.reverted = False
   # end __init__
 
   def initCore(self):
@@ -122,8 +100,8 @@ class BraidApp:
     cdef double tstart
     cdef double tstop
     cdef int ntime
-    cdef MPI.Comm comm = self.getMPIComm()
-    cdef int rank      = self.getMPIComm().Get_rank()
+    cdef MPI.Comm comm = self.mpi_comm
+    cdef int rank = self.mpi_comm.Get_rank()
     cdef braid_App app = <braid_App> self
     cdef braid_PtFcnStep  b_step  = <braid_PtFcnStep> my_step
     cdef braid_PtFcnInit  b_init  = <braid_PtFcnInit> my_init
@@ -135,8 +113,6 @@ class BraidApp:
     cdef braid_PtFcnBufSize b_bufsize = <braid_PtFcnBufSize> my_bufsize
     cdef braid_PtFcnBufPack b_bufpack = <braid_PtFcnBufPack> my_bufpack
     cdef braid_PtFcnBufUnpack b_bufunpack = <braid_PtFcnBufUnpack> my_bufunpack
-    cdef braid_PtFcnSCoarsen b_coarsen = <braid_PtFcnSCoarsen> my_coarsen
-    cdef braid_PtFcnSRefine b_refine = <braid_PtFcnSRefine> my_refine
 
     ntime = self.num_steps
     tstart = 0.0
@@ -151,24 +127,14 @@ class BraidApp:
                b_bufsize, b_bufpack, b_bufunpack, 
                &core)
 
-    if self.spatial_mg:
-      braid_SetSpatialCoarsen(core,b_coarsen)
-      braid_SetSpatialRefine(core,b_refine)
-    # end if refinement_on
-
     # Set Braid options
-    if self.require_storage:
-      braid_SetStorage(core,0)
     braid_SetMaxLevels(core, self.max_levels)
     braid_SetMaxIter(core, self.max_iters)
     braid_SetPrintLevel(core,self.print_level)
     braid_SetNRelax(core,-1,self.nrelax)
     braid_SetNRelax(core,0,0) # set F relax on fine grid
     braid_SetCFactor(core,-1,self.cfactor) # -1 implies chage on all levels
-    if self.skip_downcycle==0:
-      braid_SetSkip(core,0)
-    else:
-      braid_SetSkip(core,1)
+    braid_SetSkip(core,self.skip_downcycle)
 
     # store the c pointer
     py_core = PyBraid_Core()
@@ -178,23 +144,13 @@ class BraidApp:
   # end initCore
 
   def __del__(self):
-    print('destroy')
     if self.py_core!=None:
       py_core = <PyBraid_Core> self.py_core
       core = py_core.getCore()
 
       # Destroy Braid Core C-Struct
-      braid_Destroy(core) # this should be on
+      # FIXME: braid_Destroy(core) # this should be on
     # end core
-
-  def diagnostics(self,enable):
-    """
-    This method tells torchbraid, to keep track of the feature vectors
-    and parameters for eventual output. This is to help debug stability
-    questions and other potential issues
-    """
-
-    self.enable_diagnostics = enable
 
   def setShape(self,shape):
     # the shape to use if non-exists for taking advantage of allocations in braid
@@ -204,92 +160,48 @@ class BraidApp:
       self.shape0 = shape
 
   def runBraid(self,x):
+
     cdef PyBraid_Core py_core = <PyBraid_Core> self.py_core
     cdef braid_Core core = py_core.getCore()
 
-    self.setInitial(x)
- 
-    # Run Braid
-    if not self.first:
-      _braid_InitGuess(core,0)
-      self.first = False
-    braid_Drive(core) # my_step -> App:eval -> resnet "basic block"
+    total_ranks   = self.mpi_comm.Get_size()
+    comm_ = self.mpi_comm
 
-    self.printBraidStats()
-    # SG:
-    # # Get vector at final time step from braid
-    # cdef braid_BaseVector bv
-    # _braid_UGetLast(core, &bv)
-    # if not (bv is NULL):
-    #   ulast = <object> bv.userVector
-    #   # print("ulast: ", ulast.tensor_)
-    #   self.x_final = ulast.clone()
+    self.x = x
+    
+    h = torch.zeros(self.num_layers, x.size(0), self.hidden_size)
+    c = torch.zeros(self.num_layers, x.size(0), self.hidden_size)
 
+    # h = torch.ones(self.num_layers, x.size(0), self.hidden_size) * 77
+    # c = torch.ones(self.num_layers, x.size(0), self.hidden_size)
 
-    fin = self.getFinal()
-    self.x0 = None
-    self.x_final = None
+    self.setInitial_g((h,c))
+    # self.setInitial(x)
 
-    return fin
+    # Run Braid (calls rnn_my_step -> eval(running basic_blocks) in RNN_torchbraid.py)
+    braid_Drive(core)
 
-  def printBraidStats(self):
-    cdef PyBraid_Core py_core = <PyBraid_Core> self.py_core
-    cdef braid_Core core = py_core.getCore()
+    h_c  = self.getFinal()
+    h_c = comm_.bcast(h_c,root=total_ranks-1)
 
-    cdef double resnorm 
-    cdef int iter_cnt 
-    cdef int niter = -1 # used for lookup
+    # print("Rank %d BraidApp -> runBraid() - end" % prefix_rank)
 
-    # no printing internally enabled
-    if self.tb_print_level==0:
-      return
-
-    braid_GetNumIter(core, &iter_cnt);
-
-    niter = -1
-    braid_GetRNorms(core, &niter, &resnorm);
-
-    my_rank       = self.getMPIComm().Get_rank()
-    if my_rank==0:
-      print('  -- \"%s\" %03d iters yields rnorm of %.6e' % (self.prefix_str,iter_cnt,resnorm))
-  # end printBraidStats
-
+    return h_c
 
   def getCore(self):
     return self.py_core    
  
-  def setPrintLevel(self,print_level,tb_print=False):
-    """
-    Set the print level for this object. If tb_print (torchbraid print) is
-    set to true this method sets the internal printing diagnostics. If it is
-    false, the print level is passed along to xbraid.
-    """
+  def setPrintLevel(self,print_level):
+    self.print_level = print_level
 
-    if tb_print:
-      # short circuit and set internal level
-      self.tb_print_level = print_level
-    else:
-      # set (default) xbraid printing 
-      self.print_level = print_level
-
-      core = (<PyBraid_Core> self.py_core).getCore()
-      braid_SetPrintLevel(core,self.print_level)
+    core = (<PyBraid_Core> self.py_core).getCore()
+    braid_SetPrintLevel(core,self.print_level)
 
   def setNumRelax(self,relax,level=-1):
-    self.nrelax = relax 
+    self.nrelax = relax
 
     core = (<PyBraid_Core> self.py_core).getCore()
     braid_SetNRelax(core,level,self.nrelax)
-
-  def setMaxIters(self,max_iters):
-    self.max_iters = max_iters
-
-    core = (<PyBraid_Core> self.py_core).getCore()
-    braid_SetMaxIter(core, self.max_iters)
-
-  def setFMG(self):
-    core = (<PyBraid_Core> self.py_core).getCore()
-    braid_SetFMG(core)
 
   def setCFactor(self,cfactor):
     self.cfactor = cfactor 
@@ -298,25 +210,23 @@ class BraidApp:
     braid_SetCFactor(core,-1,self.cfactor) # -1 implies chage on all levels
 
   def setSkipDowncycle(self,skip):
-    if skip:
-      self.skip_downcycle = 1 
-    else:
-      self.skip_downcycle = 0 
+    self.skip_downcycle = skip
 
     core = (<PyBraid_Core> self.py_core).getCore()
     braid_SetSkip(core,self.skip_downcycle)
 
+  def setStorage(self,storage):
+    core = (<PyBraid_Core> self.py_core).getCore()
+    braid_SetStorage(core,storage)
+
   def setRevertedRanks(self,reverted):
-    self.reverted = reverted 
     core = (<PyBraid_Core> self.py_core).getCore()
     braid_SetRevertedRanks(core,reverted)
 
-  def getUVector(self,level,t):
+  def getUVector(self,level,index):
     cdef braid_Core core = (<PyBraid_Core> self.py_core).getCore()
     cdef braid_BaseVector bv
-
-    index = self.getGlobalTimeStepIndex(t,None,level)
-    _braid_UGetVectorRef(core, level,index,&bv)
+    _braid_UGetVectorRef(core, level, index,&bv)
 
     return <object> bv.userVector
 
@@ -329,66 +239,51 @@ class BraidApp:
   def getGlobalTimeStepIndex(self,t,tf,level):
     return round(t / self.dt)
 
-  def setInitial(self,x0):
+  def setInitial_g(self,g0):
+
     cdef braid_Core core = (<PyBraid_Core> self.py_core).getCore()
     cdef braid_BaseVector bv 
 
-    if not self.reverted and self.mpi_comm.Get_rank()!=0:
-      return
-
-    if self.reverted and self.mpi_comm.Get_rank()!=self.mpi_comm.Get_size()-1:
-      return
-
-    #if self.reverted and self.mpi_comm.Get_rank()!=self.mpi_comm.Get_size()-1:
-    #  return
-
-    self.x0 = BraidVector(x0,0)
+    self.g0 = BraidVector(g0,0)
 
     # set the appropriate initial condition
     if core.warm_restart:
       _braid_UGetVectorRef(core, 0, 0, &bv);
       if not (bv is NULL):
         py_bv = <object> bv.userVector
-        py_bv.replaceTensor(x0)
+        py_bv.tensor_ = g0
+
+    # print("Rank %d BraidApp -> setInitial_g() - end" % prefix_rank)
 
 
   def buildInit(self,t):
+
+    g = self.g0.clone()
     if t>0:
-      zeros = [torch.zeros(s) for s in self.shape0]
-      x = BraidVector(tuple(zeros),0)
-    else:
-      x = BraidVector(self.x0.tensors(),0)
-    return x
+      t_h,t_c = g.tensors()
+      t_h[:] = 0.0
+      t_c[:] = 0.0
+
+    # print("Rank %d BraidApp -> buildInit() - end" % prefix_rank)
+    return g
 
   def access(self,t,u):
-<<<<<<< HEAD
-    # if t==self.Tf:
-      # print("Access(", t,"): returning x_final.\n")
-      # self.x_final = u.clone()
-    ## Instead of the above, x_final is set at the end of runBraid
-    pass
-=======
+
     if t==self.Tf:
-      # not sure why this requires a clone
-      # if this needs only one processor
-      # it could be a problem in the future
-      if self.getMPIComm().Get_size()>1:
-        self.x_final = u.tensor()
-      else:
-        self.x_final = u.clone().tensor()
->>>>>>> master
+      self.x_final = u.clone()
+
+    # print("Rank %d BraidApp -> access() - end" % prefix_rank)
 
   def getFinal(self):
+
     if self.x_final==None:
       return None
-
+      
     # assert the level
-    return self.x_final
-
-  def evalNetwork(self):
-    self.training = False
-
-  def trainNetwork(self):
-    self.training = True
+    assert(self.x_final.level()==0)
+    x_final_tensors = self.x_final.tensors()
+    
+    # print("Rank %d BraidApp -> getFinal() - end" % prefix_rank)
+    return x_final_tensors
 
 # end BraidApp
