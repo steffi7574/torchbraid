@@ -1,31 +1,31 @@
 #@HEADER
 # ************************************************************************
-# 
+#
 #                        Torchbraid v. 0.1
-# 
-# Copyright 2020 National Technology & Engineering Solutions of Sandia, LLC 
-# (NTESS). Under the terms of Contract DE-NA0003525 with NTESS, the U.S. 
+#
+# Copyright 2020 National Technology & Engineering Solutions of Sandia, LLC
+# (NTESS). Under the terms of Contract DE-NA0003525 with NTESS, the U.S.
 # Government retains certain rights in this software.
-# 
+#
 # Torchbraid is licensed under 3-clause BSD terms of use:
-# 
+#
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are
 # met:
-# 
+#
 # 1. Redistributions of source code must retain the above copyright
 # notice, this list of conditions and the following disclaimer.
-# 
+#
 # 2. Redistributions in binary form must reproduce the above copyright
 # notice, this list of conditions and the following disclaimer in the
 # documentation and/or other materials provided with the distribution.
-# 
-# 3. Neither the name National Technology & Engineering Solutions of Sandia, 
-# LLC nor the names of the contributors may be used to endorse or promote 
+#
+# 3. Neither the name National Technology & Engineering Solutions of Sandia,
+# LLC nor the names of the contributors may be used to endorse or promote
 # products derived from this software without specific prior written permission.
-# 
+#
 # Questions? Contact Eric C. Cyr (eccyr@sandia.gov)
-# 
+#
 # ************************************************************************
 #@HEADER
 
@@ -219,7 +219,7 @@ class ForwardODENetApp(BraidApp):
   # end eval
 
   def getPrimalWithGrad(self,tstart,tstop,level):
-    """ 
+    """
     Get the forward solution associated with this
     time step and also get its derivative. This is
     used by the BackwardApp in computation of the
@@ -313,10 +313,10 @@ class BackwardODENetApp(BraidApp):
       # - can have gradient's turned off
       my_params = self.fwd_app.parameters()
       for sublist in my_params[first:]:
-        sub_gradlist = [] 
+        sub_gradlist = []
         for item in sublist:
           if item.grad is not None:
-            sub_gradlist += [ item.grad.clone() ] 
+            sub_gradlist += [ item.grad.clone() ]
           else:
             sub_gradlist += [ None ]
 
@@ -338,6 +338,10 @@ class BackwardODENetApp(BraidApp):
     adjoint solution. The variables 'x' and 'y' refer to the forward
     problem solutions at the beginning (x) and end (y) of the type step.
     """
+
+    #SG:
+    # my_rank       = self.getMPIComm().Get_rank()
+    # print(my_rank, ": BWDapp Step(", level, "): ", self.Tf-tstop, "->", self.Tf-tstart, "compute_grad=", compute_grads)
     try:
         # we need to adjust the time step values to reverse with the adjoint
         # this is so that the renumbering used by the backward problem is properly adjusted
@@ -351,7 +355,7 @@ class BackwardODENetApp(BraidApp):
         required_grad_state = []
 
         # play with the layers gradient to make sure they are on apprpriately
-        for p in layer.parameters(): 
+        for p in layer.parameters():
           required_grad_state += [p.requires_grad]
           # SG:
           # # if level==0:
@@ -387,6 +391,9 @@ class BackwardODENetApp(BraidApp):
     except:
       print('\n**** Torchbraid Internal Exception ****\n')
       traceback.print_exc()
+
+    #SG:
+    return BraidVector(t_x_old.grad.detach(),level)
   # end eval
 
 # end BackwardODENetApp

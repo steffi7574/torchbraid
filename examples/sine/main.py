@@ -16,6 +16,12 @@ def root_print(rank,s):
   if rank==0:
     print(s)
 
+# MPI Stuff
+rank  = MPI.COMM_WORLD.Get_rank()
+procs = MPI.COMM_WORLD.Get_size()
+
+
+
 class SineDataset(torch.utils.data.Dataset):
     """ Dataset for sine approximation
         x in [-pi,pi], y = sin(x) """
@@ -63,11 +69,25 @@ class ClosingLayer(torch.nn.Module):
         x = torch.mean(x, dim=1, keepdim=True) # take the mean of each example
         return x
 
+counter = 0
 # Normal steplayer
 class StepLayer(torch.nn.Module):
     def __init__(self, width):
         super(StepLayer, self).__init__()
+        global counter
+
         self.linearlayer = torch.nn.Linear(width, width)
+        constant = counter + 1.0
+        init_amp = rank * nlayers / procs + 1.0 + counter
+        torch.nn.init.constant_(self.linearlayer.weight, init_amp)
+        self.linearlayer.bias.data.fill_(0)
+
+        print(rank ,": Creating ", counter, "-th Layer: ", self.linearlayer.weight)
+        counter = counter + 1
+        self.ID = init_amp - 1
+
+    def getID(self):
+        return self.ID
 
     def forward(self, x):
         x = torch.tanh(self.linearlayer(x))
@@ -136,7 +156,7 @@ class SerialSpliNet(torch.nn.Module):
         for i in range(nlayers):
             self.step_layers[i].setTime(i*self.stepsize)
             x = x + self.stepsize * self.step_layers[i](x)
-            
+
             for param in self.step_layers[i].parameters():
                 print(" Serial SpliNet layer ", i, " param ", param )
 
@@ -244,6 +264,7 @@ parser = argparse.ArgumentParser(description='TORCHBRAID Sine Example')
 parser.add_argument('--force-lp', action='store_true', default=False, help='Use layer parallel even if there is only 1 MPI rank')
 parser.add_argument('--epochs', type=int, default=500, metavar='N', help='number of epochs to train (default: 2)')
 parser.add_argument('--batch-size', type=int, default=20, metavar='N', help='batch size for training (default: 50)')
+parser.add_argument('--max-levels', type=int, default=10, metavar='N', help='maximum number of braid levels (default: 10)')
 parser.add_argument('--plot', default=True, help='Plot the results (default: true)')
 parser.add_argument('--splinet', action='store_true', default=False, help='Use SpliNet instead of Resnet')
 args = parser.parse_args()
@@ -252,12 +273,6 @@ if args.splinet:
     splinet = True
 else:
     splinet = False
-
-
-# MPI Stuff
-rank  = MPI.COMM_WORLD.Get_rank()
-procs = MPI.COMM_WORLD.Get_size()
-
 
 # some logic to default to Serial if on one processor,
 # can be overriden by the user to run layer-parallel
@@ -273,17 +288,18 @@ torch.manual_seed(0)
 
 # Specify network
 width = 2
-nlayers = 10
-Tstop = 10.0
+nlayers = 20
+Tstop = 20.0
 
 # Specify training params
 batch_size = args.batch_size
 max_epochs = args.epochs
+max_levels = args.max_levels
 learning_rate = 1e-3
 
 
 # Get sine data
-ntraindata = 5
+ntraindata = 20
 nvaldata = 20
 training_set = SineDataset("./xy_train.dat", ntraindata)
 training_generator = torch.utils.data.DataLoader(training_set, batch_size=batch_size, shuffle=False)
@@ -309,10 +325,10 @@ if not force_lp:
 else:
     root_print(rank, "Building parallel net")
     # Layer-parallel parameters
-    lp_max_levels = 10
-    lp_max_iter = 10
-    lp_printlevel = 1
-    lp_braid_printlevel = 1
+    lp_max_levels = max_levels
+    lp_max_iter = 1
+    lp_printlevel = 2
+    lp_braid_printlevel = 2
     lp_cfactor = 2
     # Number of local steps
     local_steps  = int(nlayers / procs)
@@ -385,21 +401,21 @@ for epoch in range(max_epochs):
         loss = myloss(ypred, local_labels)
 
         # Comput gradient through backpropagation
-        optimizer.zero_grad()
-        loss.backward()
+        # optimizer.zero_grad()
+        # loss.backward()
 
 
         # for param in model.parameters():
             # print(param)
 
-        grads = []
-        params = []
-        for param in model.parameters():
-            # print("Main: model gradients: ", param.grad)
-            # print("Model parameter: ", param)
-            grads.append(param.grad.view(-1))
-            # params.append(param.view(-1))
-        print("These are the model gradients: ", grads)
+        # grads = []
+        # params = []
+        # for param in model.parameters():
+        #     # print("Main: model gradients: ", param.grad)
+        #     # print("Model parameter: ", param)
+        #     grads.append(param.grad.view(-1))
+        #     # params.append(param.view(-1))
+        # print("These are the model gradients: ", grads)
         # print("Theses are all the params:", params)
 
         # Print gradients
@@ -425,9 +441,9 @@ for epoch in range(max_epochs):
 
     # Output and stopping
     with torch.no_grad():
-        gnorm = gradnorm(model.parameters())
-        if rank == 0:
-            print(rank, epoch, loss.item(), loss_val, gnorm)
+        # gnorm = gradnorm(model.parameters())
+        gnorm = 0.0
+        print(rank, epoch, loss.item(), loss_val, gnorm)
 
     # Stopping criterion
     if gnorm < 1e-4:

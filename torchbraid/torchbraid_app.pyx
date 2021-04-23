@@ -324,6 +324,9 @@ class BraidApp:
     return self.mpi_comm
 
   def getLocalTimeStepIndex(self,t,tf,level):
+    id = round((t-self.t0_local) / self.dt)
+    my_rank       = self.getMPIComm().Get_rank()
+    print(my_rank, ": Layerid=", id, " t=",t, ", t0_local=", self.t0_local )
     return round((t-self.t0_local) / self.dt)
 
   def getGlobalTimeStepIndex(self,t,tf,level):
@@ -361,22 +364,11 @@ class BraidApp:
     return x
 
   def access(self,t,u):
-<<<<<<< HEAD
     # if t==self.Tf:
       # print("Access(", t,"): returning x_final.\n")
       # self.x_final = u.clone()
     ## Instead of the above, x_final is set at the end of runBraid
     pass
-=======
-    if t==self.Tf:
-      # not sure why this requires a clone
-      # if this needs only one processor
-      # it could be a problem in the future
-      if self.getMPIComm().Get_size()>1:
-        self.x_final = u.tensor()
-      else:
-        self.x_final = u.clone().tensor()
->>>>>>> master
 
   def getFinal(self):
     if self.x_final==None:
