@@ -316,7 +316,7 @@ class BraidApp:
     cdef braid_Core core = (<PyBraid_Core> self.py_core).getCore()
     cdef braid_BaseVector bv
 
-    index = self.getGlobalTimeStepIndex(t)
+    index = self.getGlobalTimeStepIndex(t,None,level)
     _braid_UGetVectorRef(core, level,index,&bv)
 
     return <object> bv.userVector

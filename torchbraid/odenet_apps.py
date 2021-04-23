@@ -152,15 +152,17 @@ class ForwardODENetApp(BraidApp):
   def timer(self,name):
     return self.timer_manager.timer("ForWD::"+name)
 
-  def getLayer(self,t):
-    index = self.getLocalTimeStepIndex(t)
-    # on the first processor, shift index by one because there is not layer at t=0.0, so P0 will have one layer less than time-steps.
+  def getLayer(self,t,tf,level):
+    # Use layer at tstop, because evalFWD(tstart->tstop) is called by the processor who owns tstop!.
+    index = self.getLocalTimeStepIndex(tf) 
+
+    # on the first processor, shift index by one because there is no layer at t=0.0, so P0 will have one layer less than time-steps.
     if self.my_rank == 0:
       index = index - 1
 
-    if index < 0 or index >= len(self.layer_models):
-      print(self.my_rank, ": WARNING: getLayer index out of range: ", index, ", len(list)=", len(self.layer_models))
-    print(self.my_rank, ": getLayer(t=", t, ")=", index, ", len(list)=", len(self.layer_models))
+    assert(index >= 0)
+    assert(index < len(self.layer_models))
+
     return self.layer_models[index]
 
   def parameters(self):
@@ -173,14 +175,11 @@ class ForwardODENetApp(BraidApp):
     condition x. The level is defined by braid
     """
 
-    # print(self.my_rank, ": FWDeval level ", level, " ", tstart, "->", tstop, " using layer ", layer.getID(), ": ", layer.linearlayer.weight[0].data)
-    print(self.my_rank, ": FWDeval level ", level, " ", tstart, "->", tstop)
-
     # this function is used twice below to define an in place evaluation
     def in_place_eval(t_y,tstart,tstop,level,t_x=None):
       # get some information about what to do
       dt = tstop-tstart
-      layer = self.getLayer(tstop) # resnet "basic block"
+      layer = self.getLayer(tstart,tstop,level) # resnet "basic block"
 
       if t_x==None:
         t_x = t_y
@@ -247,16 +246,14 @@ class ForwardODENetApp(BraidApp):
     being recomputed.
     """
 
-    print(self.my_rank, ": getPrimalWithGrad ", tstart, "->", tstop)
-
-    layer = self.getLayer(tstop)
+    layer = self.getLayer(tstart,tstop,level)
 
     # the idea here is store it internally, failing
     # that the values need to be recomputed locally. This may be
     # because you are at a processor boundary, or decided not
     # to start the value
     if self.internal_storage:
-      ts_index = self.getGlobalTimeStepIndex(tstart)
+      ts_index = self.getGlobalTimeStepIndex(tstart,tstop,level)
       assert(ts_index in self.soln_store)
       t_x = self.soln_store[ts_index]
     else:
@@ -359,15 +356,9 @@ class BackwardODENetApp(BraidApp):
     problem solutions at the beginning (x) and end (y) of the type step.
     """
     try:
-
-        # layer = self.fwd_app.getLayer(self.Tf-tstart)
-        # print(self.fwd_app.my_rank, ": BWDeval level ", level, " ", tstart, "->", tstop, " using layer ", layer.getID(), ": ", layer.linearlayer.weight[0].data)
-        print(self.fwd_app.my_rank, ": BWDeval level ", level, " ", tstart, "->", tstop)
-
         # we need to adjust the time step values to reverse with the adjoint
         # this is so that the renumbering used by the backward problem is properly adjusted
         (t_y,t_x),layer = self.fwd_app.getPrimalWithGrad(self.Tf-tstop,self.Tf-tstart,level)
-
 
         # t_x should have no gradient (for memory reasons)
         assert(t_x.grad is None)
@@ -399,7 +390,7 @@ class BackwardODENetApp(BraidApp):
         for p,s in zip(layer.parameters(),required_grad_state):
           p.requires_grad = s
     except:
-      print('\n', self.fwd_app.my_rank, ': **** Torchbraid Internal Exception ****\n')
+      print('\n**** Torchbraid Internal Exception ****\n')
       traceback.print_exc()
   # end eval
 
