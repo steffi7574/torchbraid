@@ -85,9 +85,7 @@ cdef int my_step(braid_App app, braid_Vector ustop, braid_Vector fstop, braid_Ve
 
     # modify the state vector in place
     u =  <object> vec_u
-    pyApp.eval(u,tstart,tstop,level)
-
-    # SG:
+    pyApp.eval(u,tstart,tstop,level, compute_grads)
     # temp = pyApp.eval(u,tstart,tstop,level, compute_grads)
     # u.tensor().copy_(temp.tensor())
 
