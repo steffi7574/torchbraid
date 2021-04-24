@@ -78,10 +78,6 @@ class BraidApp:
     self.local_num_steps = local_num_steps
     self.num_steps       = local_num_steps*self.mpi_comm.Get_size()
 
-    self.dt       = Tf/self.num_steps
-    self.t0_local = self.mpi_comm.Get_rank()*local_num_steps*self.dt
-    self.tf_local = (self.mpi_comm.Get_rank()+1.0)*local_num_steps*self.dt
-
     self.x_final = None
     self.shape0 = None
   
@@ -102,6 +98,19 @@ class BraidApp:
 
     # build up the core
     self.py_core = self.initCore()
+
+    # Get information on Braid's grid distribution and store local times
+    cdef braid_Core core = (<PyBraid_Core> self.py_core).getCore()
+    cdef int ilower
+    cdef int iupper
+    _braid_GetDistribution(core, &ilower, &iupper)
+    self.ilower = ilower
+    self.iupper = iupper
+
+    self.dt       = Tf/self.num_steps
+    self.t0_local = self.ilower * self.dt
+    self.tf_local = self.iupper * self.dt
+
 
     # this tracks if you are training or not,
     # this is intended to match the behavior of
@@ -216,7 +225,7 @@ class BraidApp:
     braid_Drive(core) # my_step -> App:eval -> resnet "basic block"
 
     self.printBraidStats()
-    SG:
+    
     # Get vector at final time step from braid
     cdef braid_BaseVector bv
     _braid_UGetLast(core, &bv)
@@ -323,13 +332,11 @@ class BraidApp:
   def getMPIComm(self):
     return self.mpi_comm
 
-  def getLocalTimeStepIndex(self,t,tf,level):
-    id = round((t-self.t0_local) / self.dt)
-    my_rank       = self.getMPIComm().Get_rank()
-    print(my_rank, ": Layerid=", id, " t=",t, ", t0_local=", self.t0_local )
-    return round((t-self.t0_local) / self.dt)
+  def getLocalTimeStepIndex(self,t):
+    # return round((t-self.t0_local) / self.dt)
+    return self.getGlobalTimeStepIndex(t) - self.ilower
 
-  def getGlobalTimeStepIndex(self,t,tf,level):
+  def getGlobalTimeStepIndex(self,t):
     return round(t / self.dt)
 
   def setInitial(self,x0):

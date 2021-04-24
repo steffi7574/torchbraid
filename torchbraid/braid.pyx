@@ -264,6 +264,11 @@ cdef extern from "_braid.h":
     # helper function for accessing braid vector at LAST time step
     int _braid_UGetLast(braid_Core        core,
                         braid_BaseVector *u_ptr);
+                        
+    # helper functions for accessing information on Braid's parallel grid distribution
+    int _braid_GetDistribution(braid_Core   core,
+                               int *ilower_ptr,
+                               int *iupper_ptr);
 
 
 # cdef object convert_carray_to_numpy(double * v, dim1, dim2=1, dim3=1):
