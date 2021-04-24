@@ -216,14 +216,14 @@ class BraidApp:
     braid_Drive(core) # my_step -> App:eval -> resnet "basic block"
 
     self.printBraidStats()
-    # SG:
-    # # Get vector at final time step from braid
-    # cdef braid_BaseVector bv
-    # _braid_UGetLast(core, &bv)
-    # if not (bv is NULL):
-    #   ulast = <object> bv.userVector
-    #   # print("ulast: ", ulast.tensor_)
-    #   self.x_final = ulast.clone()
+    SG:
+    # Get vector at final time step from braid
+    cdef braid_BaseVector bv
+    _braid_UGetLast(core, &bv)
+    if not (bv is NULL):
+      ulast = <object> bv.userVector
+      # print("ulast: ", ulast.tensor_)
+      self.x_final = ulast.clone()
 
 
     fin = self.getFinal()

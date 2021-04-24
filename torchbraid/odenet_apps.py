@@ -366,9 +366,9 @@ class BackwardODENetApp(BraidApp):
           # #   p.requires_grad = False
 
 
-          # # compute parameter grads only on the LAST call to my_step on finest level.
-          # if not compute_grads:
-          #   p.requires_grad = False
+          # compute parameter grads only on the LAST call to my_step on finest level.
+          if not compute_grads:
+            p.requires_grad = False
           if level==0:
             if not p.grad is None:
               p.grad.data.zero_()
