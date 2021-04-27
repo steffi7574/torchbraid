@@ -226,13 +226,13 @@ class BraidApp:
 
     self.printBraidStats()
     
-    # Get vector at final time step from braid
-    cdef braid_BaseVector bv
-    _braid_UGetLast(core, &bv)
-    if not (bv is NULL):
-      ulast = <object> bv.userVector
-      # print("ulast: ", ulast.tensor_)
-      self.x_final = ulast.clone()
+    # # Get vector at final time step from braid
+    # cdef braid_BaseVector bv
+    # _braid_UGetLast(core, &bv)
+    # if not (bv is NULL):
+    #   ulast = <object> bv.userVector
+    #   # print("ulast: ", ulast.tensor_)
+    #   self.x_final = ulast.clone()
 
 
     fin = self.getFinal()
@@ -371,11 +371,14 @@ class BraidApp:
     return x
 
   def access(self,t,u):
-    # if t==self.Tf:
-      # print("Access(", t,"): returning x_final.\n")
-      # self.x_final = u.clone()
-    ## Instead of the above, x_final is set at the end of runBraid
-    pass
+    if t==self.Tf:
+      # not sure why this requires a clone
+      # if this needs only one processor
+      # it could be a problem in the future
+      if self.getMPIComm().Get_size()>1:
+        self.x_final = u.tensor()
+      else:
+        self.x_final = u.clone().tensor()
 
   def getFinal(self):
     if self.x_final==None:

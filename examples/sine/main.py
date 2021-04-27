@@ -77,12 +77,12 @@ class StepLayer(torch.nn.Module):
         global counter
 
         self.linearlayer = torch.nn.Linear(width, width)
-        constant = counter + 1.0
+        # init constant for debugging
         init_amp = rank * nlayers / procs + 1.0 + counter
         torch.nn.init.constant_(self.linearlayer.weight, init_amp)
         self.linearlayer.bias.data.fill_(0)
 
-        print(rank ,": Creating ", counter, "-th Layer: ", self.linearlayer.weight)
+        print(rank ,": Creating Steplayer ", counter, "-th Layer. amp=", init_amp)
         counter = counter + 1
         self.ID = init_amp - 1
 
@@ -198,6 +198,15 @@ class ParallelNet(torch.nn.Module):
             layer_models = [torch.nn.Linear(width, width) for i in range(nSplines)]
             linlayers = torch.nn.Sequential(*layer_models)
 
+            count = 0
+            for layer in layer_models:
+                # init constant for debugging
+                init_amp = rank * nlayers / procs + 1.0 + count
+                torch.nn.init.constant_(layer.weight, init_amp)
+                layer.bias.data.fill_(0)
+                print(rank ,": Splinelayer ", count, "-th Layer. amp=", init_amp)
+                count=count+1
+
             # Set up spline step_layer lambda funcition
             nKnots = nSplines - splinedegree + 1
             deltaKnots = Tstop / (nKnots - 1)
@@ -265,6 +274,7 @@ parser.add_argument('--force-lp', action='store_true', default=False, help='Use 
 parser.add_argument('--epochs', type=int, default=500, metavar='N', help='number of epochs to train (default: 2)')
 parser.add_argument('--batch-size', type=int, default=20, metavar='N', help='batch size for training (default: 50)')
 parser.add_argument('--max-levels', type=int, default=10, metavar='N', help='maximum number of braid levels (default: 10)')
+parser.add_argument('--max-iters', type=int, default=1, metavar='N', help='maximum number of braid iteration (default: 1)')
 parser.add_argument('--plot', default=True, help='Plot the results (default: true)')
 parser.add_argument('--splinet', action='store_true', default=False, help='Use SpliNet instead of Resnet')
 args = parser.parse_args()
@@ -295,6 +305,7 @@ Tstop = 20.0
 batch_size = args.batch_size
 max_epochs = args.epochs
 max_levels = args.max_levels
+max_iters = args.max_iters
 learning_rate = 1e-3
 
 
@@ -326,9 +337,9 @@ else:
     root_print(rank, "Building parallel net")
     # Layer-parallel parameters
     lp_max_levels = max_levels
-    lp_max_iter = 1
+    lp_max_iter = max_iters
     lp_printlevel = 2
-    lp_braid_printlevel = 2
+    lp_braid_printlevel = 1
     lp_cfactor = 2
     # Number of local steps
     local_steps  = int(nlayers / procs)
@@ -364,7 +375,7 @@ else:
     # compose = model.compose   # NOT SO SURE WHAT THAT DOES
 
     # Enable diagnostics (?)
-    model.parallel_nn.diagnostics(True)
+    # model.parallel_nn.diagnostics(True)
 
 
 # params = []
@@ -388,7 +399,7 @@ torch.autograd.set_detect_anomaly(True)
 
 # Training loop
 for epoch in range(max_epochs):
-    # print("## Epoch ", epoch)
+    print("## Epoch ", epoch)
 
     # TRAINING SET: Train one epoch
     for local_batch, local_labels in training_generator:
@@ -451,22 +462,23 @@ for epoch in range(max_epochs):
 
 
 
-# plot validation and training
-if args.plot is True:
-    xtrain = torch.tensor(training_set[0:len(training_set)])[0].reshape(len(training_set),1)
-    ytrain = model(xtrain).detach().numpy()
-    xval = torch.tensor(validation_set[0:len(validation_set)])[0].reshape(len(validation_set),1)
-    yval = model(xval).detach().numpy()
-    # ytrain = MPI.COMM_WORLD.bcast(ytrain,root=0)
-    # yval = MPI.COMM_WORLD.bcast(yval,root=0)
+# print("## Validation \n")
+# # plot validation and training
+# if args.plot is True:
+#     xtrain = torch.tensor(training_set[0:len(training_set)])[0].reshape(len(training_set),1)
+#     ytrain = model(xtrain).detach().numpy()
+#     xval = torch.tensor(validation_set[0:len(validation_set)])[0].reshape(len(validation_set),1)
+#     yval = model(xval).detach().numpy()
+#     # ytrain = MPI.COMM_WORLD.bcast(ytrain,root=0)
+#     # yval = MPI.COMM_WORLD.bcast(yval,root=0)
 
-    if rank == 0:
-        plt.plot(xtrain, ytrain, 'ro')
-        plt.plot(xval, yval, 'bo')
-        # Groundtruth
-        xtruth = np.arange(-pi, pi, 0.1)
-        plt.plot(xtruth, np.sin(xtruth))
+#     if rank == 0:
+#         plt.plot(xtrain, ytrain, 'ro')
+#         plt.plot(xval, yval, 'bo')
+#         # Groundtruth
+#         xtruth = np.arange(-pi, pi, 0.1)
+#         plt.plot(xtruth, np.sin(xtruth))
 
-        # Shot the plot
-        plt.legend(['training', 'validation', 'groundtruth'])
-        plt.show()
+#         # Shot the plot
+#         plt.legend(['training', 'validation', 'groundtruth'])
+#         plt.show()

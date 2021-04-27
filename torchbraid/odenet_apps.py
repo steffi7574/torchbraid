@@ -174,6 +174,7 @@ class ForwardODENetApp(BraidApp):
     required to propagate from tstart to tstop, with the initial
     condition x. The level is defined by braid
     """
+    # print(self.my_rank, "StepFWD:", tstart,"->",  tstop)
 
     # this function is used twice below to define an in place evaluation
     def in_place_eval(t_y,tstart,tstop,level,t_x=None):
@@ -409,8 +410,8 @@ class BackwardODENetApp(BraidApp):
       print('\n**** Torchbraid Internal Exception ****\n')
       traceback.print_exc()
 
-    #SG:
-    return BraidVector(t_x_old.grad.detach(),level)
+    # # SG:
+    # return BraidVector(t_x_old.grad.detach(),level)
   # end eval
 
 # end BackwardODENetApp
