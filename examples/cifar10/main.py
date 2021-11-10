@@ -49,8 +49,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 import statistics as stats
+import matplotlib.pyplot as plt
+import numpy as np
 
 from torchvision import datasets, transforms
+import torchvision.utils
 
 from timeit import default_timer as timer
 
@@ -235,6 +238,8 @@ def main():
                       help='number of epochs to train (default: 2)')
   parser.add_argument('--lr', type=float, default=0.01, metavar='LR',
                       help='learning rate (default: 0.01)')
+  parser.add_argument('--Tf', type=float, default=1.0, metavar='Tf',
+                      help='Final time (default: 1.0)')
 
   # algorithmic settings (parallel or serial)
   parser.add_argument('--force-lp', action='store_true', default=False,
@@ -278,6 +283,7 @@ def main():
     root_print(rank,'Steps must be an even multiple of the number of processors: %d %d' % (args.steps,procs) )
     sys.exit(0)
 
+  # The output of torchvision datasets are PILImage images of range [0, 1]. We transform them to Tensors of normalized range [-1, 1]
   transform = transforms.Compose([transforms.ToTensor(),
                               transforms.Normalize((0.5,0.5,0.5), (0.5,0.5,0.5))])
   train_set = datasets.CIFAR10('./data', download=False,
@@ -291,6 +297,15 @@ def main():
   test_loader  = torch.utils.data.DataLoader(test_set,
                                              batch_size=args.batch_size, 
                                              shuffle=False)
+
+
+  # Plot some images for fun
+  #classes = ('plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
+  #dataiter = iter(train_loader)
+  #images, labels = dataiter.next()
+  #imshow(torchvision.utils.make_grid(images))
+  #print(' '.join('%5s' % classes[labels[j]] for j in range(args.batch_size)))
+  #stop
 
   if force_lp :
     root_print(rank,'Using ParallelNet: finefcf {}, use_downcycle {}'.format(args.lp_finefcf,args.lp_use_downcycle))
@@ -306,10 +321,14 @@ def main():
     compose = model.compose
   else:
     root_print(rank,'Using SerialNet')
-    model = SerialNet(channels=args.channels,local_steps=local_steps)
+    print("Final time ", args.Tf)
+    print("number of layers ", args.steps)
+    model = SerialNet(channels=args.channels,local_steps=local_steps, Tf=args.Tf)
     compose = lambda op,*p: op(*p)
 
   optimizer = optim.SGD(model.parameters(), lr=args.lr,momentum=0.9)
+  # optimizer = optim.SGD(model.parameters(), lr=args.lr,momentum=0.9, weight_decay=5e-4)
+  # scheduler=torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=200)
 
   epoch_times = []
   test_times = []
@@ -318,6 +337,8 @@ def main():
     train(rank,args, model, train_loader, optimizer, epoch,compose)
     end_time = timer()
     epoch_times += [end_time-start_time]
+
+    # scheduler.step()
 
     start_time = timer()
     test(rank,model, test_loader,compose)
@@ -330,6 +351,13 @@ def main():
 
   root_print(rank,'TIME PER EPOCH: %.2e (1 std dev %.2e)' % (stats.mean(epoch_times),stats.stdev(epoch_times)))
   root_print(rank,'TIME PER TEST:  %.2e (1 std dev %.2e)' % (stats.mean(test_times), stats.stdev(test_times)))
+
+
+def imshow(img):
+    img = img / 2 + 0.5 # unnormalize
+    npimg = img.numpy()
+    plt.imshow(np.transpose(npimg, (1,2,0)))
+    plt.show()
 
 if __name__ == '__main__':
   main()
