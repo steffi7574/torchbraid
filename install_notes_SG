@@ -1,0 +1,24 @@
+# General notes: 
+    * Use openmpi rather than mpich!
+    * Tell mpi4py where the mpicc compiler is:
+        MPICC=/path/to/openmpi/mpicc pip install mpi4py
+    * Use Cython>=3.0a6 on FIPS enabled systems
+
+# Steps to install torchbraid:
+    * Create and activate a virtual environment ("myenv"):
+        > python -m venv myenv
+        > source ./myenv/bin/activate
+    
+    * Install numpy, torch, torchvision, cython at version 3.0a6:
+        > python -m pip install numpy torch torchvision cython==3.0a6 
+    
+    * Install mpi4py:
+        > which mpicc
+        [Out: /path/to/openmpi/mpicc]
+        > MPICC=/path/to/openmpi/mpicc python -m pip install mpi4py
+
+    * Build torchbraid and set the PYTHONPATH:
+        > make
+        > export PYTHONPATH=/path/to/torchbraid/torchbraid:/path/to/torchbraid:${PYTHONPATH} 
+
+
