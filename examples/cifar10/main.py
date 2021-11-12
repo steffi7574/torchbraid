@@ -359,7 +359,8 @@ def main():
   root_print(rank,'TIME PER EPOCH: %.2e (1 std dev %.2e)' % (stats.mean(epoch_times),stats.stdev(epoch_times)))
   root_print(rank,'TIME PER TEST:  %.2e (1 std dev %.2e)' % (stats.mean(test_times), stats.stdev(test_times)))
 
-  plot_losses(epoch_losses)
+  plot_losses(args, epoch_losses)
+
 
 def imshow(img):
     img = img / 2 + 0.5 # unnormalize
@@ -368,7 +369,7 @@ def imshow(img):
     plt.show()
 
 
-def plot_losses(epoch_losses, show=True):
+def plot_losses(args,epoch_losses, show=True):
 
   x = np.arange(0, 1.0*len(epoch_losses[0])*len(epoch_losses), len(epoch_losses[0]))
   x += len(epoch_losses[0])/2 * np.ones(len(x))
@@ -384,9 +385,13 @@ def plot_losses(epoch_losses, show=True):
   if show:
     plt.show()
 
-  filename = "losses"
-  lossesfile = open(filename+".dat", "w")
-  meansfile = open(filename+"_mean.dat", "w")
+  fileprefix = "Tf"+str(args.Tf) +\
+             "_steps"+str(args.steps) +\
+             "_channels" + str(args.channels) +\
+             "_batchsize" + str(args.batch_size) +\
+             "_lr" + str(args.lr)
+  lossesfile = open(fileprefix +".dat", "w")
+  meansfile = open(fileprefix+"_mean.dat", "w")
   for i, losses in enumerate(epoch_losses):
     for j, loss in enumerate(losses):
       lossesfile.write(str(i*len(losses) + j) + "   " + str(loss) + "\n")
