@@ -165,6 +165,7 @@ def train(rank, args, model, train_loader, optimizer, epoch,compose):
   model.train()
   criterion = nn.CrossEntropyLoss()
   total_time = 0.0
+  losses = []
   for batch_idx, (data, target) in enumerate(train_loader):
     start_time = timer()
     optimizer.zero_grad()
@@ -180,9 +181,13 @@ def train(rank, args, model, train_loader, optimizer, epoch,compose):
           epoch, batch_idx * len(data), len(train_loader.dataset),
           100. * batch_idx / len(train_loader), loss.item(),total_time/(batch_idx+1.0)))
 
-    root_print(rank,'Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}\tTime Per Batch {:.6f}'.format(
+    root_print(rank,'{:.0f} Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}\tTime Per Batch {:.6f}'.format( batch_idx,
       epoch, (batch_idx+1) * len(data), len(train_loader.dataset),
       100. * (batch_idx+1) / len(train_loader), loss.item(),total_time/(batch_idx+1.0)))
+
+    losses.append(loss.item())
+
+  return losses
 
 
 def test(rank, model, test_loader,compose):
@@ -332,9 +337,11 @@ def main():
 
   epoch_times = []
   test_times = []
+  epoch_losses = []
   for epoch in range(1, args.epochs + 1):
     start_time = timer()
-    train(rank,args, model, train_loader, optimizer, epoch,compose)
+    losses = train(rank,args, model, train_loader, optimizer, epoch,compose)
+    epoch_losses.append(losses)
     end_time = timer()
     epoch_times += [end_time-start_time]
 
@@ -352,12 +359,30 @@ def main():
   root_print(rank,'TIME PER EPOCH: %.2e (1 std dev %.2e)' % (stats.mean(epoch_times),stats.stdev(epoch_times)))
   root_print(rank,'TIME PER TEST:  %.2e (1 std dev %.2e)' % (stats.mean(test_times), stats.stdev(test_times)))
 
+  plot_losses(epoch_losses)
 
 def imshow(img):
     img = img / 2 + 0.5 # unnormalize
     npimg = img.numpy()
     plt.imshow(np.transpose(npimg, (1,2,0)))
     plt.show()
+
+
+def plot_losses(epoch_losses):
+
+  x = np.arange(0, 1.0*len(epoch_losses[0])*len(epoch_losses), len(epoch_losses[0]))
+  x += len(epoch_losses[0])/2 * np.ones(len(x))
+
+  loss_mean = []
+  for losses in epoch_losses:
+    loss_mean.append(stats.mean(losses))
+
+  plt.yscale('log')
+  plt.plot(x, loss_mean, 'o-')
+  flat_loss = [item for sublist in epoch_losses for item in sublist]
+  plt.plot(flat_loss)
+  plt.show()
+
 
 if __name__ == '__main__':
   main()
