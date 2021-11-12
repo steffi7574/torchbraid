@@ -368,7 +368,7 @@ def imshow(img):
     plt.show()
 
 
-def plot_losses(epoch_losses):
+def plot_losses(epoch_losses, show=True):
 
   x = np.arange(0, 1.0*len(epoch_losses[0])*len(epoch_losses), len(epoch_losses[0]))
   x += len(epoch_losses[0])/2 * np.ones(len(x))
@@ -381,7 +381,19 @@ def plot_losses(epoch_losses):
   plt.plot(x, loss_mean, 'o-')
   flat_loss = [item for sublist in epoch_losses for item in sublist]
   plt.plot(flat_loss)
-  plt.show()
+  if show:
+    plt.show()
+
+  filename = "losses"
+  lossesfile = open(filename+".dat", "w")
+  meansfile = open(filename+"_mean.dat", "w")
+  for i, losses in enumerate(epoch_losses):
+    for j, loss in enumerate(losses):
+      lossesfile.write(str(i*len(losses) + j) + "   " + str(loss) + "\n")
+    meansfile.write(str((i*len(losses) + len(losses)/2)) + "   " + str(stats.mean(losses)) + "\n")
+  lossesfile.close()
+  meansfile.close()
+
 
 
 if __name__ == '__main__':
